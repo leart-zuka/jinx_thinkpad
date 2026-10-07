@@ -7,8 +7,15 @@
 #   output: "<clock>\x1f<system info>" — dwm centres the first part,
 #   right-aligns the second:   tue 06  19:34  |  cpu ▁▂▃▅  //  mem ▁▂▃ 1.4G  //  [▮▮▮ ] 87%
 
+# All these commands are some AI stuff aswell as the code, but I still wanna understand it lol
+# : is basically like setting a default value
+# So saying a=${SOME_ENVAR:-1} checks if SOME_ENVAR is set, if not, then it just takes the value of whatever is after the colon
+# However this is funny: If it says a=${BLA:-1} then it means `Use 1 as the value if BLA is unset or null` but if we use a plus instead
+# so a=${BLA:+1} then it means, use 1 as the value if BLA is set. Funny ig
+
 BH=${JINXBAR_BH:-18}        # bar height in px; auto-detected from dwm unless JINXBAR_BH is set
-bh_found=${JINXBAR_BH:+1}; bh_found=${bh_found:-0}
+bh_found=${JINXBAR_BH:+1}; 
+bh_found=${bh_found:-0}
 INTERVAL=${JINXBAR_INTERVAL:-3}
 BAT=${JINXBAR_BAT:-/sys/class/power_supply/BAT0}
 
@@ -23,15 +30,21 @@ G_SKULL=$'\xf4\x80\x80\x92' # U+100012
 SEP="^c$PINK^ // "
 
 # ---- equalizer meter: 8 bottom-aligned bars of rising height -------------
+# I wanted a meter for the cpu and ram usage. So the idea is to draw 8 vertical bars, in increasing size, where
+# the more bars light up, the higher the usage.
+# Base is the y-coordinate of the bar, drawn from the top. So the top of the bar is y=0, and the bottom point of the bar is y=base. 
+# And every bar will then get drawn using y=base-bar_height
 meter() {   # $1 = percent, $2 = colour  -> REPLY
     local pct=$1 col=$2 lit i x=0 h h_col s="" cur=""
-    local base=$(( (BH + 12) / 2 ))
-    lit=$(( (pct * 8 + 50) / 100 )); (( pct > 0 && lit == 0 )) && lit=1
+    local base=$(( (BH + 12) / 2 )) # Can't really understand as to why it does it like that, but sure ok
+    no_lit_bars=$(( (pct * 8 + 50) / 100 )); # This tells me how many of the 8 bars are lit. The weird arithmetic is just to convert the percentage to a number that's between 0-8
+    (( pct > 0 && no_lit_bars == 0 )) && no_lit_bars=1 # If no bars are lit (lit==0) but the percentage is still above 0, just light up one bar
     for (( i = 0; i < 8; i++ )); do
         h=$(( 4 + i ))
-        (( i < lit )) && h_col=$col || h_col=$DIM
-        [[ $h_col != "$cur" ]] && { s+="^c$h_col^"; cur=$h_col; }   # only on change
-        s+="^r$x,$((base - h)),3,$h^"
+        (( i < no_lit_bars )) && h_col=$col || h_col=$DIM
+        [[ $h_col != "$cur" ]] && { s+="^c$h_col^"; cur=$h_col; }   # only on change say that the color of the bar has this and that color (that's the ^c^ part)
+        # Note: no need to constantly add the ^c^ for every bar (although that would make things more readable), because dwm just takes whatever color was set before until it's changed
+        s+="^r$x,$((base - h)),3,$h^" # Here it says so draw a rectangle with at a specific x coordinate, y coordinate, width, and height (that's the ^r^ part)
         (( x += 4 ))
     done
     REPLY="$s^f$((x + 3))^"
@@ -40,7 +53,9 @@ meter() {   # $1 = percent, $2 = colour  -> REPLY
 # ---- battery: outlined cell with proportional fill -----------------------
 battery() {
     local cap st col fw y=$(( (BH - 10) / 2 )) s=""
+    # Checks if $BAT/capacity is a file and is readable
     [[ -r $BAT/capacity ]] || { REPLY=""; return; }
+    # Reads the 
     read -r cap < "$BAT/capacity"; read -r st < "$BAT/status"
     (( cap > 100 )) && cap=100
     if   (( cap <= 15 )); then col=$RED
@@ -51,21 +66,28 @@ battery() {
     if [[ $st == Charging ]]; then s+="^c$TEAL^$G_BOLT "
     elif (( cap <= 15 ));    then s+="^c$RED^$G_SKULL "; fi
 
-    fw=$(( (cap * 20 + 50) / 100 ))
+    # Again same bs as with the hight of the bars
+    fill_width=$(( (cap * 20 + 50) / 100 ))
     s+="^c$CHALK^^r0,$y,24,10^^c$BG^^r1,$((y+1)),22,8^"     # outline
     s+="^c$CHALK^^r24,$((y+3)),2,4^"                         # nub
-    (( fw > 0 )) && s+="^c$col^^r2,$((y+2)),$fw,6^"          # charge
+    (( fill_width > 0 )) && s+="^c$col^^r2,$((y+2)),$fill_width,6^"          # charge
     REPLY="$s^f30^^c$col^$cap%"
 }
 
 # ---- cpu: delta of /proc/stat between ticks ------------------------------
+# Proc stat is a cool virtual file directly built into linux that gives us a bunch of info on how are cpu is running
+# It measures a bunch of values in what are called `jiffies` which are in units of `USER_HZ`.
+# Here's the article that explains how one can calculate the cpu usage from those jiffies
+# https://linuxvox.com/blog/accurately-calculating-cpu-utilization-in-linux-using-proc-stat/#understanding-procstat
+# The main function is however this one
+# CPU% = (Total Busy Jiffies / Total Jiffies) * 100  
 prev_total=0 prev_idle=0
 cpu() {
     local _ u n s i w q sq st total idle dt
     read -r _ u n s i w q sq st _ < /proc/stat
     total=$(( u + n + s + i + w + q + sq + st )); idle=$(( i + w ))
-    dt=$(( total - prev_total ))
-    (( dt > 0 )) && REPLY=$(( 100 * (dt - (idle - prev_idle)) / dt )) || REPLY=0
+    dt=$(( total - prev_total )) # ticks that passed since last sample
+    (( dt > 0 )) && REPLY=$(( 100 * (dt - (idle - prev_idle)) / dt )) || REPLY=0 # # of those, the ones that weren't idle
     prev_total=$total prev_idle=$idle
 }
 
