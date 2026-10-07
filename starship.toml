@@ -1,0 +1,110 @@
+#  Powder keg — starship prompt
+#
+#  ☠ leart // ~/dotfiles // ⚡ main [!1 +2] // took 4s
+#  ❯
+#
+#  Doodles come from Doodlebomb.ttf (U+100010–100018); st/xterm pick them up
+#  through font fallback once the font is installed. No Nerd Font needed.
+"$schema" = 'https://starship.rs/config-schema.json'
+
+add_newline = true
+palette = "powder_keg"
+
+format = """
+[\U00100012](bold pink) $username$hostname$directory$git_branch$git_status$git_state\
+$nix_shell$python$nodejs$rust$c$cmd_duration$jobs
+$character"""
+
+[palettes.powder_keg]
+pink  = "#e0237f"
+blue  = "#4fa8e0"
+teal  = "#61baa5"
+chalk = "#d6cbd0"
+mute  = "#8a7f95"
+brass = "#e8bf7a"
+red   = "#ff2a55"
+
+# ---- who / where ---------------------------------------------------------
+[username]
+show_always = true
+style_user  = "bold blue"
+style_root  = "bold red"
+format      = "[$user]($style)"
+
+[hostname]
+ssh_only = true                       # only shows on ssh sessions
+style    = "brass"
+format   = "[@$hostname]($style)"
+
+[directory]
+style             = "bold teal"
+truncation_length = 3
+truncation_symbol = "…/"
+truncate_to_repo  = false
+read_only         = " ro"
+read_only_style   = "red"
+format            = "[ // ](pink)[$path]($style)[$read_only]($read_only_style)"
+
+# ---- git -----------------------------------------------------------------
+[git_branch]
+symbol = "\U00100017 "                     # bolt
+style  = "bold blue"
+format = "[ // ](pink)[$symbol$branch]($style)"
+
+[git_status]
+style      = "pink"
+conflicted = "✕"
+ahead      = "↑${count}"
+behind     = "↓${count}"
+diverged   = "↕"
+untracked  = "?${count}"
+stashed    = "≡"
+modified   = "!${count}"
+staged     = "+${count}"
+renamed    = "»${count}"
+deleted    = "-${count}"
+format     = '( [\[$all_status$ahead_behind\]]($style))'
+
+[git_state]
+style  = "bold brass"
+format = '[ \($state( $progress_current/$progress_total)\)]($style)'
+
+# ---- environments --------------------------------------------------------
+[nix_shell]
+symbol = "\U00100016 "                     # bomb
+style  = "bold teal"
+impure_msg = ""
+pure_msg   = "pure"
+format = '[ // ](pink)[$symbol$name( $state)]($style)'
+
+[python]
+style  = "brass"
+format = '[ // ](pink)[py ${version}( \($virtualenv\))]($style)'
+
+[nodejs]
+style  = "teal"
+format = "[ // ](pink)[node $version]($style)"
+
+[rust]
+style  = "brass"
+format = "[ // ](pink)[rs $version]($style)"
+
+[c]
+style  = "blue"
+format = "[ // ](pink)[c $version]($style)"
+
+# ---- after the command ---------------------------------------------------
+[cmd_duration]
+min_time = 2000
+style    = "mute"
+format   = "[ // ](pink)[took $duration]($style)"
+
+[jobs]
+symbol = "\U00100013"                      # launch arrow = background jobs
+style  = "bold brass"
+format = "[ // ](pink)[$symbol$number]($style)"
+
+[character]
+success_symbol = "[❯](bold pink)"
+error_symbol   = "[\U00100014 ❯](bold red)"     # dripping X on failure
+vimcmd_symbol  = "[❮](bold teal)"

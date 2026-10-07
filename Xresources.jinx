@@ -1,0 +1,22 @@
+! Powder keg — terminal palette (st, xterm, urxvt). merge with: xrdb -merge ~/.Xresources
+*.background:  #14141f
+*.foreground:  #d6cbd0
+*.cursorColor: #e0237f
+! black          red            green          yellow (brass)
+*.color0:  #14141f
+*.color1:  #e0244e
+*.color2:  #61baa5
+*.color3:  #d4a25a
+*.color8:  #3a3550
+*.color9:  #ff2a55
+*.color10: #7fd6bf
+*.color11: #e8bf7a
+! blue           magenta        cyan           white (chalk)
+*.color4:  #327ebc
+*.color5:  #e0237f
+*.color6:  #4a9dbd
+*.color7:  #c2b4b8
+*.color12: #4fa8e0
+*.color13: #ff5aa5
+*.color14: #7ccbe8
+*.color15: #d6cbd0

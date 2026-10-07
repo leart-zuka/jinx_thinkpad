@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# jinxbar — dwm status line with drawn meters (needs jinxbar-dwm.diff)
+#
+# Bash builtins only — per tick it forks just sleep and xsetroot,
+# so it stays cheap on the X61s' low-voltage Core 2.
+#
+#   output: "<clock>\x1f<system info>" — dwm centres the first part,
+#   right-aligns the second:   tue 06  19:34  |  cpu ▁▂▃▅  //  mem ▁▂▃ 1.4G  //  [▮▮▮ ] 87%
+
+BH=${JINXBAR_BH:-18}        # bar height in px; auto-detected from dwm unless JINXBAR_BH is set
+bh_found=${JINXBAR_BH:+1}; bh_found=${bh_found:-0}
+INTERVAL=${JINXBAR_INTERVAL:-3}
+BAT=${JINXBAR_BAT:-/sys/class/power_supply/BAT0}
+
+# palette (keep BG identical to col_bg in config.h)
+BG='#14141f'  DIM='#3a3550'  CHALK='#d6cbd0'  MUTE='#8a7f95'
+PINK='#e0237f' BLUE='#4fa8e0' TEAL='#61baa5'  RED='#ff2a55'
+
+# Doodlebomb glyphs, written as raw UTF-8 bytes so locale doesn't matter
+G_BOLT=$'\xf4\x80\x80\x97'  # U+100017
+G_SKULL=$'\xf4\x80\x80\x92' # U+100012
+
+SEP="^c$PINK^ // "
+
+# ---- equalizer meter: 8 bottom-aligned bars of rising height -------------
+meter() {   # $1 = percent, $2 = colour  -> REPLY
+    local pct=$1 col=$2 lit i x=0 h h_col s="" cur=""
+    local base=$(( (BH + 12) / 2 ))
+    lit=$(( (pct * 8 + 50) / 100 )); (( pct > 0 && lit == 0 )) && lit=1
+    for (( i = 0; i < 8; i++ )); do
+        h=$(( 4 + i ))
+        (( i < lit )) && h_col=$col || h_col=$DIM
+        [[ $h_col != "$cur" ]] && { s+="^c$h_col^"; cur=$h_col; }   # only on change
+        s+="^r$x,$((base - h)),3,$h^"
+        (( x += 4 ))
+    done
+    REPLY="$s^f$((x + 3))^"
+}
+
+# ---- battery: outlined cell with proportional fill -----------------------
+battery() {
+    local cap st col fw y=$(( (BH - 10) / 2 )) s=""
+    [[ -r $BAT/capacity ]] || { REPLY=""; return; }
+    read -r cap < "$BAT/capacity"; read -r st < "$BAT/status"
+    (( cap > 100 )) && cap=100
+    if   (( cap <= 15 )); then col=$RED
+    elif (( cap <= 35 )); then col=$PINK
+    elif (( cap <= 60 )); then col=$BLUE
+    else                       col=$TEAL; fi
+
+    if [[ $st == Charging ]]; then s+="^c$TEAL^$G_BOLT "
+    elif (( cap <= 15 ));    then s+="^c$RED^$G_SKULL "; fi
+
+    fw=$(( (cap * 20 + 50) / 100 ))
+    s+="^c$CHALK^^r0,$y,24,10^^c$BG^^r1,$((y+1)),22,8^"     # outline
+    s+="^c$CHALK^^r24,$((y+3)),2,4^"                         # nub
+    (( fw > 0 )) && s+="^c$col^^r2,$((y+2)),$fw,6^"          # charge
+    REPLY="$s^f30^^c$col^$cap%"
+}
+
+# ---- cpu: delta of /proc/stat between ticks ------------------------------
+prev_total=0 prev_idle=0
+cpu() {
+    local _ u n s i w q sq st total idle dt
+    read -r _ u n s i w q sq st _ < /proc/stat
+    total=$(( u + n + s + i + w + q + sq + st )); idle=$(( i + w ))
+    dt=$(( total - prev_total ))
+    (( dt > 0 )) && REPLY=$(( 100 * (dt - (idle - prev_idle)) / dt )) || REPLY=0
+    prev_total=$total prev_idle=$idle
+}
+
+# ---- memory: MemTotal - MemAvailable -------------------------------------
+mem() {
+    local k v _ tot=0 avail=0
+    while read -r k v _; do
+        case $k in
+            MemTotal:)     tot=$v ;;
+            MemAvailable:) avail=$v; break ;;
+        esac
+    done < /proc/meminfo
+    local used=$(( tot - avail ))
+    MEM_PCT=$(( 100 * used / tot ))
+    printf -v MEM_TXT '%d.%dG' $(( used / 1048576 )) $(( used % 1048576 * 10 / 1048576 ))
+}
+
+# ---- read the real bar height from dwm's bar window (one xwininfo call) ---
+detect_bh() {
+    local line g
+    while read -r line; do
+        [[ $line == *'("dwm" "dwm")'* ]] || continue
+        g=${line##*\)}; g=${g%%+*}; g=${g##*x}     # "... 1024x17+0+0" -> 17
+        [[ $g =~ ^[0-9]+$ ]] && { BH=$g; return 0; }
+    done < <(xwininfo -root -children 2>/dev/null)
+    return 1
+}
+
+cpu   # prime the counters
+while :; do
+    sleep "$INTERVAL" & wait $!            # builtin-friendly sleep, Ctrl-C safe
+
+    if (( ! bh_found )) && detect_bh; then bh_found=1; fi   # retries until dwm is up
+
+    cpu;  c=$REPLY
+    (( c > 75 )) && ccol=$PINK || ccol=$BLUE
+    meter "$c" "$ccol";  cpu_s="^c$MUTE^cpu ^f3^$REPLY"
+
+    mem
+    (( MEM_PCT > 80 )) && mcol=$PINK || mcol=$TEAL
+    meter "$MEM_PCT" "$mcol"; mem_s="^c$MUTE^mem ^f3^$REPLY^c$CHALK^$MEM_TXT"
+
+    battery; bat_s=$REPLY
+
+    printf -v day  '%(%a %d %b)T' -1
+    printf -v hhmm '%(%H:%M)T' -1
+    clock="^c$MUTE^${day,,}  ^c$PINK^/  ^c$CHALK^$hhmm"
+
+    xsetroot -name "$clock"$'\x1f'"$cpu_s$SEP$mem_s${bat_s:+$SEP$bat_s} ^d^"
+done
